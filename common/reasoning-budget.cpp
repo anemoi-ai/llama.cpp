@@ -4,6 +4,7 @@
 
 #include "log.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <string>
@@ -25,10 +26,20 @@ struct token_matcher {
                 return true;
             }
         } else {
-            pos = 0;
-            if (token == tokens[0]) {
-                pos = 1;
+            // KMP-style fallback: resume at the longest prefix of `tokens`
+            // that is a suffix of the consumed tokens plus this token, so
+            // patterns with repeated prefixes are not missed
+            // (e.g. pattern [A A B] against input [A A A B]).
+            size_t k = pos;
+            while (k > 0) {
+                if (tokens[k - 1] == token &&
+                    std::equal(tokens.begin(), tokens.begin() + (k - 1),
+                               tokens.begin() + (pos - (k - 1)))) {
+                    break;
+                }
+                --k;
             }
+            pos = k;
         }
         return false;
     }
