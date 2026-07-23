@@ -988,6 +988,19 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
 
         // if kv is shared with target (e.g Gemma4), then we can skip this catch-up decode
         if (!is_mem_shared) {
+            // draft() pre-advanced ctx_dft with speculative draft tokens at these
+            // same positions (using draft-predicted embeddings). Drop them so this
+            // authoritative catch-up decode — which mirrors the target's hidden
+            // states — starts from a clean KV. Required for M-RoPE, whose batch
+            // check demands the KV max be below the batch's first position (X < Y).
+            for (llama_seq_id seq_id = 0; seq_id < (llama_seq_id) n_seq; ++seq_id) {
+                if (i_batch_beg[seq_id] < 0) {
+                    continue;
+                }
+                llama_memory_seq_rm(llama_get_memory(ctx_dft), seq_id,
+                        batch_in.pos[i_batch_beg[seq_id]], -1);
+            }
+
             common_batch_clear(batch);
 
             for (int k = 0; k < n_tokens; ++k) {
@@ -1067,6 +1080,15 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
             n_drafting++;
             drafting[seq_id] = true;
             common_sampler_reset(smpls[seq_id].get());
+
+            // Drop any speculative/unconfirmed draft KV left in ctx_dft at or beyond
+            // this sequence's seed position by a previous iteration (rejected drafts
+            // whose positions the target never confirmed). Without this the seed
+            // decode below collides with stale positions under M-RoPE (X < Y), which
+            // would silently degrade this step to the single-token fallback.
+            if (!is_mem_shared) {
+                llama_memory_seq_rm(llama_get_memory(ctx_dft), seq_id, dp.n_past, -1);
+            }
 
             common_batch_add(batch, dp.id_last, dp.n_past, { seq_id }, true);
 
