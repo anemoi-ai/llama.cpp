@@ -130,7 +130,14 @@ common_peg_arena autoparser::build_parser(const generation_params & inputs, cons
             parser = content.build_parser(ctx);
         }
         const std::string reasoning_start = trim_whitespace(reasoning.start);
-        return pure_content ? p.prefix(generation_prompt, reasoning_start) + parser : p.prefix(generation_prompt, reasoning_start) << parser;
+        // The generation-prompt prefix is parse-only: it aligns the parser with
+        // input that still carries the prompt tail. It must not reach the GBNF -
+        // the sampler grammar sees generated tokens only, and a literal here
+        // would force the model to re-emit the prompt tail (breaks non-lazy
+        // grammars, e.g. tool_choice required, on templates whose generation
+        // prompt lacks the reasoning start tag).
+        auto prompt_prefix = p.gbnf(p.prefix(generation_prompt, reasoning_start), "");
+        return pure_content ? prompt_prefix + parser : prompt_prefix << parser;
     });
 }
 
