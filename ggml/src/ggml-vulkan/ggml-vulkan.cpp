@@ -8258,7 +8258,11 @@ void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx, const
                             (tuning_params.path != FA_COOPMAT2 || (sparse_gather_aligned(k) && sparse_gather_aligned(v))) &&
                             nem0 == KV &&
                             (int64_t)KV >= std::max<int64_t>(4096, min_ratio * (int64_t)n_kv_max) &&
-                            (gqa_ratio > 1 || (tuning_params.path == FA_SCALAR && N == 1));
+                            // Coopmat paths only. The scalar kernel carries no sparse gather:
+                            // in its inner loops the indirection cost dense attention up to a
+                            // third of its prefill (RDNA2, AMD Windows driver), so a sparse mask
+                            // there runs as an ordinary masked dense attention instead.
+                            tuning_params.path != FA_SCALAR && gqa_ratio > 1;
 
     const uint32_t q_stride = (uint32_t)(nbq1 / ggml_type_size(q->type));
     uint32_t k_stride = (uint32_t)(nbk1 / ggml_type_size(k->type));
